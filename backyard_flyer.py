@@ -44,13 +44,11 @@ class BackyardFlyer(Drone):
         """
 
         if self.flight_state == States.TAKEOFF:
-            if self.is_altitude_reached(self.target_position):
-                # self.landing_transition()
+            if self.is_altitude_reached(d=0.95):
                 self.waypoint_transition()
 
         if self.flight_state == States.WAYPOINT:
-            print(self.target_position, self.local_position, self.local_velocity_absolute())
-            if self.is_target_reached(self.target_position) or self.local_velocity_absolute() < 0.05:
+            if self.is_target_reached(d=0.8) and self.local_velocity_absolute() < 1:
                 if len(self.all_waypoints) == 0:
                     self.landing_transition()
                 else:
@@ -58,9 +56,10 @@ class BackyardFlyer(Drone):
 
     def velocity_callback(self):
         """
-        This triggers when `MsgID.LOCAL_VELOCITY` is received and self.local_velocity contains new data        """
+        This triggers when `MsgID.LOCAL_VELOCITY` is received and self.local_velocity contains new data
+        """
         if self.flight_state == States.LANDING:
-            if self.is_altitude_reached(target_position=self.global_home, d=0.95):
+            if self.is_altitude_reached(d=0.9):
                 self.disarming_transition()
 
     def state_callback(self):
@@ -68,7 +67,6 @@ class BackyardFlyer(Drone):
         This triggers when `MsgID.STATE` is received and self.armed and self.guided contain new data
         """
         if not self.in_mission:
-            print('not in mission')
             return
 
         if self.flight_state == States.MANUAL:
@@ -79,26 +77,27 @@ class BackyardFlyer(Drone):
             self.manual_transition()
 
     def local_velocity_absolute(self):
-        return np.sum(np.absolute(self.local_velocity))
+        return np.linalg.norm(self.local_velocity, 2)
 
-    def reached(self, target_position, d):
-        # z axis of local_position is inverted
-        diff_position = np.array([
-            target_position[0] - self.local_position[0],
-            target_position[1] - self.local_position[1],
-            target_position[2] + self.local_position[2]])
-        return np.vectorize(lambda x: x < 1.0 - d)(np.absolute(diff_position))
+    def is_altitude_reached(self, d=0.95):
+        diff = abs(self.local_position[2]) - self.target_altitude
+        # print(diff)
+        return abs(diff) < 1 - d
 
-    def is_altitude_reached(self, target_position, d=0.95):
-        return self.reached(target_position, d)[2]
-
-    def is_target_reached(self, target_position, d=0.95):
+    def is_target_reached(self, d=0.95):
         """
         check if local_position within d of target_position
         """
-        x = self.reached(target_position, d)
-        print(x)
-        return np.all(self.reached(target_position, d))
+
+        # z axis of local_position is inverted
+        diff_position = np.array([
+            self.target_position[0] - self.local_position[0],
+            self.target_position[1] - self.local_position[1],
+            self.target_position[2] + self.local_position[2]])
+
+        norm = np.linalg.norm(diff_position, 2)
+        # print(self.target_position, self.local_position, np.linalg.norm(diff_position, 2), self.local_velocity_absolute())
+        return norm < 1 - d
 
     def calculate_box(self):
         """
@@ -120,6 +119,7 @@ class BackyardFlyer(Drone):
         print("arming transition")
 
         self.take_control()
+        time.sleep(1)
         self.arm()
 
         # set current location to the home position
@@ -168,6 +168,7 @@ class BackyardFlyer(Drone):
         print("landing transition")
 
         self.land()
+        self.target_altitude = 0
         self.flight_state = States.LANDING
 
     def disarming_transition(self):
